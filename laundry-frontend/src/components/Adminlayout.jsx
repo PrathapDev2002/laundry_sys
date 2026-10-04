@@ -12,7 +12,7 @@ import {
   X,
   ClipboardPlus,
 } from "lucide-react";
-import NotificationBell from "./NotificationBell";
+import NotificationBell from "./Notificationbell";
 
 const navItems = [
   { path: "/admin/entry", label: "New Entry (Backup)", icon: ClipboardPlus },
