@@ -58,7 +58,7 @@ export default function AdminLayout({ title, children }) {
         <button onClick={() => setMobileOpen(true)} className="p-1">
           <Menu size={22} />
         </button>
-        <span className="font-semibold text-gray-800">Laundry Admin</span>
+        <span className="font-semibold text-gray-800">Laundry Sys</span>
         <NotificationBell />
       </div>
 
