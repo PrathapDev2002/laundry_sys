@@ -33,21 +33,34 @@ app.use((req, res, next) => {
   next();
 });
 
+// If there are no admin accounts yet, create a default one so you can log in
+// the first time without any API tools. Override via DEFAULT_ADMIN_USERNAME /
+// DEFAULT_ADMIN_PASSWORD env vars. Change this password right after first login!
+async function ensureDefaultAdmin() {
+  const Admin = require("./models/Admin");
+  const bcrypt = require("bcryptjs");
+  if ((await Admin.countDocuments()) > 0) return;
+
+  const username = process.env.DEFAULT_ADMIN_USERNAME || "admin";
+  const password = process.env.DEFAULT_ADMIN_PASSWORD || "admin123";
+  await Admin.create({ username, passwordHash: await bcrypt.hash(password, 10) });
+  console.log(`Default admin created -> username: "${username}". Change the password after first login.`);
+}
+
 mongoose
   .connect(process.env.MONGODB_URI)
-  .then(() => console.log("MongoDB connected"))
+  .then(async () => {
+    console.log("MongoDB connected");
+    await ensureDefaultAdmin();
+  })
   .catch(err => console.error("MongoDB connection error:", err));
 
-// app.use("/api/employees", require("./routes/employees"));
-// app.use("/api/departments", require("./routes/departments"));
-// app.use("/api/transactions", require("./routes/transactions"));
-// app.use("/api/summary", require("./routes/summary"));
-
+app.use("/api/auth", require("./routes/auth"));
 app.use("/api/employees", require("./routes/employees"));
 app.use("/api/departments", require("./routes/department"));
-// app.use("/api/departments", require("./routes/departmentImport"));
 app.use("/api/transactions", require("./routes/transaction"));
 app.use("/api/summary", require("./routes/summary"));
+app.use("/api/notifications", require("./routes/notification"));
 
 app.get("/", (req, res) => res.send("Laundry backend is running."));
 

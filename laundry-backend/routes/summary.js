@@ -1,19 +1,21 @@
 const express = require("express");
 const router = express.Router();
 const Transaction = require("../models/Transaction");
+const auth = require("../middleware/authMiddle");
+const { parseFrom, parseTo } = require("../utils/dates");
 
 // GET /api/summary?groupBy=day|month&department=&from=&to=&action=DROP_OFF
-// Default action=DROP_OFF since that's what feeds the "sent for washing" totals.
+// ADMIN ONLY. Default action=DROP_OFF since that's what feeds the "sent for washing" totals.
 // Pass action=PICKUP if you want the return-side numbers too.
-router.get("/", async (req, res) => {
+router.get("/", auth, async (req, res) => {
   const { groupBy = "day", department, from, to, action = "DROP_OFF" } = req.query;
 
   const match = { action };
   if (department) match.department = department;
   if (from || to) {
     match.createdAt = {};
-    if (from) match.createdAt.$gte = new Date(from);
-    if (to) match.createdAt.$lte = new Date(to);
+    if (from) match.createdAt.$gte = parseFrom(from);
+    if (to) match.createdAt.$lte = parseTo(to);
   }
 
   const dateFormat = groupBy === "month" ? "%Y-%m" : "%Y-%m-%d";

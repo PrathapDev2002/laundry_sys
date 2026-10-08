@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
+  Home,
   Users,
   Shirt,
   Receipt,
@@ -11,20 +12,28 @@ import {
   Menu,
   X,
   ClipboardPlus,
+  ClipboardCheck,
+  LogOut,
+  ShieldCheck,
 } from "lucide-react";
-import NotificationBell from "./Notificationbell";
+import NotificationBell from "./NotificationBell";
 
 const navItems = [
+  { path: "/admin/dashboard", label: "Dashboard", icon: Home },
   { path: "/admin/entry", label: "New Entry (Backup)", icon: ClipboardPlus },
-  { path: "/admin/employee", label: "Employees", icon: Users },
-  { path: "/admin/department", label: "Departments & Items", icon: Shirt },
+  { path: "/admin/employees", label: "Employees", icon: Users },
+  { path: "/admin/departments", label: "Departments & Items", icon: Shirt },
   { path: "/admin/transactions", label: "Transactions", icon: Receipt },
+  { path: "/admin/acknowledge", label: "Acknowledge Drop-offs", icon: ClipboardCheck },
   { path: "/admin/pending", label: "Pending Pickups", icon: Clock },
   { path: "/admin/summary", label: "Summary", icon: BarChart3 },
+  { path: "/admin/users", label: "Admin Users", icon: ShieldCheck },
 ];
 
 export default function AdminLayout({ title, children }) {
   const location = useLocation();
+  const navigate = useNavigate();
+  const username = localStorage.getItem("adminUsername");
 
   // Remember collapse preference across visits
   const [collapsed, setCollapsed] = useState(
@@ -35,6 +44,12 @@ export default function AdminLayout({ title, children }) {
   useEffect(() => {
     localStorage.setItem("adminSidebarCollapsed", collapsed);
   }, [collapsed]);
+
+  const handleLogout = () => {
+    localStorage.removeItem("adminToken");
+    localStorage.removeItem("adminUsername");
+    navigate("/admin/login");
+  };
 
   return (
     <div className="min-h-screen bg-linear-to-br from-slate-50 via-white to-blue-50 flex">
@@ -105,6 +120,23 @@ export default function AdminLayout({ title, children }) {
               </Link>
             );
           })}
+        </div>
+
+        {/* Logged-in user + logout */}
+        <div className="border-t border-slate-700/50 p-2">
+          {!collapsed && username && (
+            <p className="px-3 pt-2 pb-1 text-xs text-slate-400 truncate">Signed in as {username}</p>
+          )}
+          <button
+            onClick={handleLogout}
+            title={collapsed ? "Logout" : undefined}
+            className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm w-full text-slate-300 hover:bg-slate-700/50 hover:text-white ${
+              collapsed ? "justify-center" : ""
+            }`}
+          >
+            <LogOut size={19} className="shrink-0" />
+            {!collapsed && <span>Logout</span>}
+          </button>
         </div>
       </nav>
 

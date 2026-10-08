@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import AdminLayout from "../components/Adminlayout";
+import AdminLayout from "../components/AdminLayout";
 import { getPendingItems, listDepartments } from "../api/api";
 
 export default function AdminPending() {

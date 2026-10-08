@@ -8,11 +8,13 @@
     "seed": "node seed.js"
   },
   "dependencies": {
-    "express": "^4.19.2",
-    "mongoose": "^8.5.0",
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
     "dotenv": "^16.4.5",
-    "socket.io": "^4.7.5",
-    "cors": "^2.8.5"
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.3",
+    "mongoose": "^8.5.0",
+    "socket.io": "^4.7.5"
   },
   "devDependencies": {
     "nodemon": "^3.1.4"

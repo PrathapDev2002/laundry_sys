@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { getEmployee, getDepartmentItems, submitTransaction, getPendingItems } from "../api/api";
+import { getEmployee, getDepartmentItems, submitTransaction, getPendingItems, getMyNotices } from "../api/api";
 
 const emptyRow = { itemName: "", pcs: "" };
 
@@ -13,6 +13,7 @@ export default function StaffForm() {
   const [deptNotRegistered, setDeptNotRegistered] = useState(false); // employee found, but their department has no items configured yet
   const [deptItems, setDeptItems] = useState([]); // items available for this employee's department
   const [pendingItems, setPendingItems] = useState([]); // items dropped off but not yet picked up, for reference
+  const [notices, setNotices] = useState([]); // one-time discrepancy notices from past drop-offs
   const [rows, setRows] = useState([{ ...emptyRow }]);
   const [action, setAction] = useState("DROP_OFF");
   const [loading, setLoading] = useState(false);
@@ -32,6 +33,7 @@ export default function StaffForm() {
     setEmployee(null);
     setDeptItems([]);
     setPendingItems([]);
+    setNotices([]);
 
     // Step 1: find the employee. If this fails, nothing else runs.
     let data;
@@ -71,6 +73,15 @@ export default function StaffForm() {
       setPendingItems(Array.isArray(pendingRes.data) ? pendingRes.data : []);
     } catch {
       setPendingItems([]);
+    }
+
+    // Step 4: one-time discrepancy notices from a past drop-off that got corrected
+    // at the counter. Non-critical — form still works fine without it.
+    try {
+      const noticesRes = await getMyNotices(staffId.trim());
+      setNotices(Array.isArray(noticesRes.data) ? noticesRes.data : []);
+    } catch {
+      setNotices([]);
     }
 
     setLookingUp(false);
@@ -131,6 +142,7 @@ export default function StaffForm() {
     setDeptNotRegistered(false);
     setDeptItems([]);
     setPendingItems([]);
+    setNotices([]);
     setRows([{ ...emptyRow }]);
     setAction("DROP_OFF");
     setSubmitted(null);
@@ -202,7 +214,7 @@ export default function StaffForm() {
     <div className="min-h-screen bg-linear-to-br from-blue-50 via-white to-indigo-50 p-4 sm:p-6 md:p-8">
       <div className="max-w-md sm:max-w-lg md:max-w-xl mx-auto bg-white rounded-2xl shadow-lg p-5 sm:p-7 md:p-8">
         {isAdminEntry && (
-          <Link to="/admin/employee" className="inline-block text-sm text-blue-600 mb-3">
+          <Link to="/admin/employees" className="inline-block text-sm text-blue-600 mb-3">
             ← Back to Admin Panel
           </Link>
         )}
@@ -266,6 +278,25 @@ export default function StaffForm() {
             <p className="text-xs text-amber-600 mt-1.5">
               Based on drop-offs not yet marked as picked up. For reference only.
             </p>
+          </div>
+        )}
+
+        {/* One-time notice: a past drop-off's quantity was corrected at the counter */}
+        {employee && notices.length > 0 && (
+          <div className="bg-orange-50 border border-orange-200 rounded-xl p-3 mb-4 text-sm">
+            <p className="font-medium text-orange-800 mb-1.5">⚠ Quantity correction on a past drop-off</p>
+            {notices.map((n, idx) => (
+              <div key={idx} className="mb-2 last:mb-0">
+                {n.items.map((it) => (
+                  <p key={it.itemName} className="text-orange-700">
+                    {it.itemName}: you submitted {it.originalPcs}, counter verified {it.verifiedPcs}
+                  </p>
+                ))}
+                <p className="text-xs text-orange-600 mt-0.5">
+                  Verified by {n.acknowledgedBy} on {new Date(n.acknowledgedAt).toLocaleDateString()}
+                </p>
+              </div>
+            ))}
           </div>
         )}
 

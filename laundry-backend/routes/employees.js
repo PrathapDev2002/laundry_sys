@@ -1,8 +1,9 @@
 const express = require("express");
 const router = express.Router();
 const Employee = require("../models/Employee");
+const auth = require("../middleware/authMiddle");
 
-// GET /api/employees/:staffId  -> used by the QR form on staff-ID entry
+// GET /api/employees/:staffId  -> PUBLIC — used by the QR form on staff-ID entry
 router.get("/:staffId", async (req, res) => {
   const employee = await Employee.findOne({
     staffId: req.params.staffId,
@@ -15,8 +16,8 @@ router.get("/:staffId", async (req, res) => {
   res.json(employee);
 });
 
-// GET /api/employees  -> admin list/search, e.g. ?department=Nursing&search=john
-router.get("/", async (req, res) => {
+// GET /api/employees  -> ADMIN ONLY — list/search, e.g. ?department=Nursing&search=john
+router.get("/", auth, async (req, res) => {
   const { department, search } = req.query;
   const filter = { active: true };
   if (department) filter.department = department;
@@ -25,8 +26,8 @@ router.get("/", async (req, res) => {
   res.json(employees);
 });
 
-// POST /api/employees  -> admin creates new employee (also used by counter staff flow)
-router.post("/", async (req, res) => {
+// POST /api/employees  -> ADMIN ONLY — create new employee
+router.post("/", auth, async (req, res) => {
   try {
     const { staffId, name, department, position } = req.body;
     const employee = await Employee.create({ staffId, name, department, position });
@@ -39,8 +40,8 @@ router.post("/", async (req, res) => {
   }
 });
 
-// PUT /api/employees/:id  -> admin edits department/position/name
-router.put("/:id", async (req, res) => {
+// PUT /api/employees/:id  -> ADMIN ONLY — edit department/position/name
+router.put("/:id", auth, async (req, res) => {
   const employee = await Employee.findByIdAndUpdate(req.params.id, req.body, {
     new: true,
     runValidators: true,
@@ -49,8 +50,8 @@ router.put("/:id", async (req, res) => {
   res.json(employee);
 });
 
-// PATCH /api/employees/:id/deactivate  -> soft delete, keeps history intact
-router.patch("/:id/deactivate", async (req, res) => {
+// PATCH /api/employees/:id/deactivate  -> ADMIN ONLY — soft delete, keeps history intact
+router.patch("/:id/deactivate", auth, async (req, res) => {
   const employee = await Employee.findByIdAndUpdate(
     req.params.id,
     { active: false },
