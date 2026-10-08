@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Info, BadgeCheck, X } from "lucide-react";
-import AdminLayout from "../components/AdminLayout";
+import AdminLayout from "../components/Adminlayout";
 import { getTransactions, listDepartments } from "../api/api";
 
 const PAGE_SIZE = 20;

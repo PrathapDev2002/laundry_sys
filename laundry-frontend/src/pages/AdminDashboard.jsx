@@ -14,7 +14,7 @@ import {
   Pie,
   Cell,
 } from "recharts";
-import AdminLayout from "../components/AdminLayout";
+import AdminLayout from "../components/Adminlayout";
 import {
   getSummary,
   getPendingItems,

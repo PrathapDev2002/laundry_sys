@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import AdminLayout from "../components/AdminLayout";
+import AdminLayout from "../components/Adminlayout";
 import { getAcknowledgements, acknowledgeDropoff } from "../api/api";
 
 export default function AdminAcknowledge() {

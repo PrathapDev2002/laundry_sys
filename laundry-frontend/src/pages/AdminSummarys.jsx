@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import AdminLayout from "../components/AdminLayout";
+import AdminLayout from "../components/Adminlayout";
 import { getSummary, listDepartments } from "../api/api";
 
 export default function AdminSummary() {
