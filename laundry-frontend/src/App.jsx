@@ -7,7 +7,7 @@ import AdminDepartments from "./pages/AdminDepartments";
 import AdminTransactions from "./pages/AdminTransactions";
 import AdminAcknowledge from "./pages/AdminAcknowledges";
 import AdminPending from "./pages/ AdminPendings";
-import AdminSummary from "./pages/AdminSummary";
+import AdminSummary from "./pages/AdminSummarys";
 import ProtectedRoute from "./components/ProtectedRoutes";
 import AdminUsers from "./pages/AdminUser";
 
