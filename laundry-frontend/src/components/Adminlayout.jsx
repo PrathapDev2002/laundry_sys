@@ -16,7 +16,7 @@ import {
   LogOut,
   ShieldCheck,
 } from "lucide-react";
-import NotificationBell from "./NotificationBell";
+import NotificationBell from "./Notificationbell";
 
 const navItems = [
   { path: "/admin/dashboard", label: "Dashboard", icon: Home },
