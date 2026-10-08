@@ -144,7 +144,7 @@ export default function AdminSummary() {
           disabled={rows.length === 0}
           className="text-sm text-blue-600 font-medium disabled:text-gray-300"
         >
-          Export CSV
+          Export Excel
         </button>
       </div>
 
