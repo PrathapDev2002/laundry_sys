@@ -55,7 +55,24 @@ const LEVEL_OPTIONS = [
   { value: "period", label: "Date" },
 ];
 
-const selectClass = "border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white";
+const controlClass =
+  "w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white text-gray-800 " +
+  "focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 " +
+  "disabled:bg-gray-50 disabled:text-gray-400";
+
+// A control with its label above it
+function Field({ label, children }) {
+  return (
+    <label className="block min-w-0">
+      <span className="block text-xs font-medium text-gray-500 mb-1">{label}</span>
+      {children}
+    </label>
+  );
+}
+
+const SectionTitle = ({ children }) => (
+  <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-3">{children}</p>
+);
 
 export default function AdminSummary() {
   const [initialFrom, initialTo] = PRESETS[0].range();
@@ -173,9 +190,9 @@ export default function AdminSummary() {
   const isEmpty = pivot.children.length === 0;
   const colSpanAll = (view === "flat" ? levels.length : 1) + cols.length;
 
-  const valueCells = (values, extra = "") =>
+  const valueCells = (values) =>
     cols.map((c) => (
-      <td key={c.header} className={`px-4 py-2 text-right border-r border-gray-100 last:border-r-0 ${extra}`}>
+      <td key={c.header} className="px-3 sm:px-4 py-2 text-right whitespace-nowrap border-r border-gray-100 last:border-r-0">
         {formatValue(cellValue(values, c), c.metric)}
       </td>
     ));
@@ -184,20 +201,42 @@ export default function AdminSummary() {
     <AdminLayout title="Summary">
       {error && <div className="bg-red-50 text-red-700 text-sm rounded-lg p-3 mb-4">{error}</div>}
 
-      {/* Filters */}
-      <div className="bg-white rounded-xl shadow p-4 mb-3">
-        <div className="flex flex-wrap items-center gap-2 mb-3">
-          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={selectClass} />
-          <span className="text-gray-400 text-sm">to</span>
-          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className={selectClass} />
+      {/* One panel: what data to include, and how to group the rows */}
+      <div className="bg-white rounded-xl shadow p-4 sm:p-5 mb-4">
+        <SectionTitle>Filters</SectionTitle>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <Field label="From">
+            <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={controlClass} />
+          </Field>
+          <Field label="To">
+            <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className={controlClass} />
+          </Field>
+          <Field label="Department">
+            <select value={department} onChange={(e) => setDepartment(e.target.value)} className={controlClass}>
+              <option value="">All departments</option>
+              {(departments || []).map((d) => (
+                <option key={d} value={d}>{d}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Show">
+            <select value={show} onChange={(e) => setShow(e.target.value)} className={controlClass}>
+              <option value="DROP_OFF">Drop-off</option>
+              <option value="PICKUP">Pickup</option>
+              <option value="BOTH">Drop-off &amp; Pickup</option>
+            </select>
+          </Field>
+        </div>
+
+        <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2 mt-3">
           {PRESETS.map((p) => (
             <button
               key={p.id}
               onClick={() => applyPreset(p)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium border ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
                 activePreset === p.id
                   ? "bg-blue-600 text-white border-blue-600"
-                  : "bg-white text-gray-600 border-gray-300"
+                  : "bg-white text-gray-600 border-gray-300 hover:bg-gray-50"
               }`}
             >
               {p.label}
@@ -205,59 +244,53 @@ export default function AdminSummary() {
           ))}
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <select value={department} onChange={(e) => setDepartment(e.target.value)} className={selectClass}>
-            <option value="">All departments</option>
-            {(departments || []).map((d) => (
-              <option key={d} value={d}>{d}</option>
-            ))}
-          </select>
-          <select value={show} onChange={(e) => setShow(e.target.value)} className={selectClass}>
-            <option value="DROP_OFF">Drop-off</option>
-            <option value="PICKUP">Pickup</option>
-            <option value="BOTH">Drop-off &amp; Pickup</option>
-          </select>
+        <div className="border-t border-gray-100 my-5" />
+
+        <SectionTitle>Group rows by</SectionTitle>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <Field label="Group by">
+            <select value={levelSel[0]} onChange={(e) => setLevel(0, e.target.value)} className={controlClass} aria-label="Group by (level 1)">
+              {LEVEL_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Then by">
+            <select value={levelSel[1]} onChange={(e) => setLevel(1, e.target.value)} className={controlClass} aria-label="Then by (level 2)">
+              <option value="">None</option>
+              {LEVEL_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Then by">
+            <select
+              value={levelSel[2]}
+              onChange={(e) => setLevel(2, e.target.value)}
+              disabled={!levelSel[1]}
+              className={controlClass}
+              aria-label="Then by (level 3)"
+            >
+              <option value="">None</option>
+              {LEVEL_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </Field>
+          {levels.includes("period") && (
+            <Field label="Date grouping">
+              <select value={granularity} onChange={(e) => setGranularity(e.target.value)} className={controlClass} aria-label="Date grouping">
+                <option value="day">By day</option>
+                <option value="month">By month</option>
+              </select>
+            </Field>
+          )}
         </div>
       </div>
 
-      {/* Pivot layout + view controls */}
-      <div className="bg-white rounded-xl shadow p-4 mb-4">
-        <div className="flex flex-wrap items-center gap-2 mb-3">
-          <span className="text-sm font-medium text-gray-600 mr-1">Rows:</span>
-          <select value={levelSel[0]} onChange={(e) => setLevel(0, e.target.value)} className={selectClass} aria-label="Group by (level 1)">
-            {LEVEL_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
-          <span className="text-gray-300">›</span>
-          <select value={levelSel[1]} onChange={(e) => setLevel(1, e.target.value)} className={selectClass} aria-label="Then by (level 2)">
-            <option value="">— none —</option>
-            {LEVEL_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
-          <span className="text-gray-300">›</span>
-          <select
-            value={levelSel[2]}
-            onChange={(e) => setLevel(2, e.target.value)}
-            disabled={!levelSel[1]}
-            className={`${selectClass} disabled:bg-gray-50 disabled:text-gray-300`}
-            aria-label="Then by (level 3)"
-          >
-            <option value="">— none —</option>
-            {LEVEL_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
-          {levels.includes("period") && (
-            <select value={granularity} onChange={(e) => setGranularity(e.target.value)} className={selectClass} aria-label="Date grouping">
-              <option value="day">By day</option>
-              <option value="month">By month</option>
-            </select>
-          )}
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
+      {/* The table, with the controls that only change how it is displayed */}
+      <div className="bg-white rounded-xl shadow overflow-hidden">
+        <div className="flex flex-wrap items-center gap-2 px-3 sm:px-4 py-3 border-b border-gray-100">
           <div className="inline-flex rounded-lg border border-gray-300 overflow-hidden text-sm">
             {[
               ["grouped", "Grouped"],
@@ -266,117 +299,138 @@ export default function AdminSummary() {
               <button
                 key={id}
                 onClick={() => setView(id)}
-                className={`px-3 py-1.5 ${view === id ? "bg-blue-600 text-white" : "bg-white text-gray-600"}`}
+                className={`px-3 py-1.5 ${view === id ? "bg-blue-600 text-white" : "bg-white text-gray-600 hover:bg-gray-50"}`}
               >
                 {label}
               </button>
             ))}
           </div>
+
           {view === "grouped" && (
-            <>
+            <div className="flex items-center gap-1">
               <button
                 onClick={expandAll}
                 disabled={!hasGroups}
-                className="px-3 py-1.5 rounded-lg text-sm border border-gray-300 text-gray-600 disabled:opacity-40"
+                className="px-2.5 py-1.5 rounded-lg text-sm text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:hover:bg-transparent"
               >
                 Expand all
               </button>
               <button
                 onClick={collapseAll}
                 disabled={!hasGroups}
-                className="px-3 py-1.5 rounded-lg text-sm border border-gray-300 text-gray-600 disabled:opacity-40"
+                className="px-2.5 py-1.5 rounded-lg text-sm text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:hover:bg-transparent"
               >
                 Collapse all
               </button>
-            </>
+            </div>
           )}
+
           <button
             onClick={exportCsv}
             disabled={isEmpty}
-            className="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm text-blue-600 font-medium disabled:text-gray-300"
+            className="ml-auto inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm text-blue-600 font-medium hover:bg-blue-50 disabled:text-gray-300 disabled:hover:bg-transparent"
           >
             <Download size={15} /> Export CSV
           </button>
         </div>
-      </div>
 
-      {/* Pivot table */}
-      <div className="bg-white rounded-xl shadow overflow-x-auto">
-        <table className="w-full text-sm border-collapse">
-          <thead>
-            <tr className="bg-gray-100 border-b-2 border-gray-200 text-gray-600">
-              {view === "grouped" ? (
-                <th className="px-4 py-3 text-left border-r border-gray-200">Row Labels</th>
-              ) : (
-                levels.map((f) => (
-                  <th key={f} className="px-4 py-3 text-left border-r border-gray-200">
-                    {fieldLabel(f, granularity)}
-                  </th>
-                ))
-              )}
-              {cols.map((c) => (
-                <th key={c.header} className="px-4 py-3 text-right border-r border-gray-200 last:border-r-0 whitespace-nowrap">
-                  {c.header}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr><td colSpan={colSpanAll} className="px-4 py-6 text-center text-gray-400">Loading...</td></tr>
-            ) : isEmpty ? (
-              <tr><td colSpan={colSpanAll} className="px-4 py-6 text-center text-gray-400">No data for this selection.</td></tr>
-            ) : (
-              <>
-                {view === "grouped" &&
-                  grouped.map((row) => (
-                    <tr
-                      key={row.key}
-                      className={`border-b border-gray-100 ${
-                        row.isGroup
-                          ? row.depth === 0
-                            ? "bg-blue-50 font-semibold"
-                            : "bg-slate-50 font-medium"
-                          : "hover:bg-gray-50"
-                      }`}
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm border-collapse">
+            <thead>
+              <tr className="bg-gray-50 border-b border-gray-200 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                {view === "grouped" ? (
+                  <th className="px-3 sm:px-4 py-3 text-left border-r border-gray-200 bg-gray-50 sticky left-0 shadow-[1px_0_0_0_#e5e7eb]">Row Labels</th>
+                ) : (
+                  levels.map((f, idx) => (
+                    <th
+                      key={f}
+                      className={`px-3 sm:px-4 py-3 text-left border-r border-gray-200 ${idx === 0 ? "bg-gray-50 sticky left-0 shadow-[1px_0_0_0_#e5e7eb]" : ""}`}
                     >
-                      <td
-                        className="py-2 pr-4 border-r border-gray-100 whitespace-nowrap"
-                        style={{ paddingLeft: 16 + row.depth * 28 }}
+                      {fieldLabel(f, granularity)}
+                    </th>
+                  ))
+                )}
+                {cols.map((c) => (
+                  <th key={c.header} className="px-3 sm:px-4 py-3 text-right border-r border-gray-200 last:border-r-0">
+                    {c.header}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr><td colSpan={colSpanAll} className="px-4 py-8 text-center text-gray-400">Loading...</td></tr>
+              ) : isEmpty ? (
+                <tr><td colSpan={colSpanAll} className="px-4 py-8 text-center text-gray-400">No data for this selection.</td></tr>
+              ) : (
+                <>
+                  {view === "grouped" &&
+                    grouped.map((row) => (
+                      <tr
+                        key={row.key}
+                        className={`group border-b border-gray-100 ${
+                          row.isGroup
+                            ? row.depth === 0
+                              ? "bg-blue-50 font-semibold"
+                              : "bg-slate-50 font-medium"
+                            : "hover:bg-gray-50"
+                        }`}
                       >
-                        {row.isGroup ? (
-                          <button onClick={() => toggle(row.key)} className="inline-flex items-center gap-1.5 text-left">
-                            {row.isCollapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}
-                            {row.node.label}
-                          </button>
-                        ) : (
-                          row.node.label
-                        )}
-                      </td>
-                      {valueCells(row.node.values)}
-                    </tr>
-                  ))}
+                        <td
+                          className={`py-2 pr-3 sm:pr-4 border-r border-gray-100 sticky left-0 shadow-[1px_0_0_0_#e5e7eb] ${
+                            row.isGroup
+                              ? row.depth === 0
+                                ? "bg-blue-50"
+                                : "bg-slate-50"
+                              : "bg-white group-hover:bg-gray-50"
+                          }`}
+                          style={{ paddingLeft: 12 + row.depth * 24 }}
+                        >
+                          {row.isGroup ? (
+                            <button onClick={() => toggle(row.key)} className="inline-flex items-start gap-1.5 text-left">
+                              {row.isCollapsed ? (
+                                <ChevronRight size={15} className="shrink-0 mt-0.5" />
+                              ) : (
+                                <ChevronDown size={15} className="shrink-0 mt-0.5" />
+                              )}
+                              {row.node.label}
+                            </button>
+                          ) : (
+                            row.node.label
+                          )}
+                        </td>
+                        {valueCells(row.node.values)}
+                      </tr>
+                    ))}
 
-                {view === "flat" &&
-                  flat.map((leaf, i) => (
-                    <tr key={i} className="border-b border-gray-100 hover:bg-gray-50">
-                      {leaf.labels.map((label, j) => (
-                        <td key={j} className="px-4 py-2 border-r border-gray-100 whitespace-nowrap">{label}</td>
-                      ))}
-                      {valueCells(leaf.values)}
-                    </tr>
-                  ))}
+                  {view === "flat" &&
+                    flat.map((leaf, i) => (
+                      <tr key={i} className="group border-b border-gray-100 hover:bg-gray-50">
+                        {leaf.labels.map((label, j) => (
+                          <td
+                            key={j}
+                            className={`px-3 sm:px-4 py-2 border-r border-gray-100 ${
+                              j === 0 ? "bg-white group-hover:bg-gray-50 sticky left-0 shadow-[1px_0_0_0_#e5e7eb]" : ""
+                            }`}
+                          >
+                            {label}
+                          </td>
+                        ))}
+                        {valueCells(leaf.values)}
+                      </tr>
+                    ))}
 
-                <tr className="bg-gray-100 font-semibold border-t-2 border-gray-300">
-                  <td className="px-4 py-3 border-r border-gray-200" colSpan={view === "flat" ? levels.length : 1}>
-                    Grand Total
-                  </td>
-                  {valueCells(pivot.values)}
-                </tr>
-              </>
-            )}
-          </tbody>
-        </table>
+                  <tr className="bg-gray-50 font-semibold border-t-2 border-gray-300">
+                    <td className="px-3 sm:px-4 py-3 border-r border-gray-200 bg-gray-50 sticky left-0 shadow-[1px_0_0_0_#e5e7eb]" colSpan={view === "flat" ? levels.length : 1}>
+                      Grand Total
+                    </td>
+                    {valueCells(pivot.values)}
+                  </tr>
+                </>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </AdminLayout>
   );
