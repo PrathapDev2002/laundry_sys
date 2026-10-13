@@ -1,17 +1,87 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { ChevronDown, ChevronRight, Download } from "lucide-react";
 import AdminLayout from "../components/Adminlayout";
-import { getSummary, listDepartments } from "../api/api";
+import { getPivot, listDepartments } from "../api/api";
+import {
+  buildPivot,
+  valueColumns,
+  cellValue,
+  formatValue,
+  visibleRows,
+  allGroupKeys,
+  leafRows,
+  toCsv,
+  fieldLabel,
+} from "../utils/pivot";
+
+// Dates are handled in UTC, the same way the server buckets them.
+const iso = (d) => d.toISOString().slice(0, 10);
+const PRESETS = [
+  {
+    id: "thisMonth",
+    label: "This month",
+    range: () => {
+      const n = new Date();
+      return [iso(new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), 1))), iso(n)];
+    },
+  },
+  {
+    id: "lastMonth",
+    label: "Last month",
+    range: () => {
+      const n = new Date();
+      return [
+        iso(new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth() - 1, 1))),
+        iso(new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), 0))),
+      ];
+    },
+  },
+  {
+    id: "last7",
+    label: "Last 7 days",
+    range: () => {
+      const n = new Date();
+      const s = new Date(n);
+      s.setUTCDate(s.getUTCDate() - 6);
+      return [iso(s), iso(n)];
+    },
+  },
+  { id: "all", label: "All time", range: () => ["", ""] },
+];
+
+const LEVEL_OPTIONS = [
+  { value: "department", label: "Department" },
+  { value: "item", label: "Item" },
+  { value: "period", label: "Date" },
+];
+
+const selectClass = "border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white";
 
 export default function AdminSummary() {
+  const [initialFrom, initialTo] = PRESETS[0].range();
+  const [from, setFrom] = useState(initialFrom);
+  const [to, setTo] = useState(initialTo);
+  const [department, setDepartment] = useState("");
+  const [show, setShow] = useState("DROP_OFF"); // DROP_OFF | PICKUP | BOTH
+
+  // The row hierarchy, outermost first. Level 1 is required; 2 and 3 are optional.
+  const [levelSel, setLevelSel] = useState(["department", "item", ""]);
+  const [granularity, setGranularity] = useState("month"); // used only when Date is one of the levels
+  const [view, setView] = useState("grouped"); // grouped | flat
+  const [collapsed, setCollapsed] = useState(new Set());
+
   const [rows, setRows] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  const [groupBy, setGroupBy] = useState("day"); // "day" | "month"
-  const [action, setAction] = useState("DROP_OFF"); // "DROP_OFF" | "PICKUP"
-  const [department, setDepartment] = useState("");
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
+  const levels = levelSel.filter(Boolean);
+  const levelsKey = levels.join(",");
+  const periodParam = levels.includes("period") ? granularity : "none";
+  const actions = show === "BOTH" ? ["DROP_OFF", "PICKUP"] : [show];
+  const actionsKey = actions.join(",");
+  const cols = valueColumns(actions);
+  const hasGroups = levels.length > 1;
 
   useEffect(() => {
     listDepartments()
@@ -19,169 +89,289 @@ export default function AdminSummary() {
       .catch(() => setDepartments([]));
   }, []);
 
-  const load = async () => {
-    setLoading(true);
-    try {
-      const { data } = await getSummary({
-        groupBy,
-        action,
-        department: department || undefined,
-        from: from || undefined,
-        to: to || undefined,
-      });
-      setRows(Array.isArray(data) ? data : []);
-    } catch {
-      setRows([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  // Only filters that change what the server returns trigger a fetch. Regrouping,
+  // switching Drop-off/Pickup, expanding and collapsing all happen instantly in the browser.
   useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groupBy, action]);
+    let cancelled = false;
+    setLoading(true);
+    setError("");
+    getPivot({
+      from: from || undefined,
+      to: to || undefined,
+      department: department || undefined,
+      period: periodParam,
+    })
+      .then(({ data }) => {
+        if (!cancelled) setRows(Array.isArray(data) ? data : []);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setRows([]);
+          setError("Failed to load the summary.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [from, to, department, periodParam]);
 
-  const applyFilters = () => load();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const pivot = useMemo(() => buildPivot(rows, levels, actions), [rows, levelsKey, actionsKey]);
 
-  const clearFilters = () => {
-    setDepartment("");
-    setFrom("");
-    setTo("");
-    setTimeout(load, 0);
+  // A new layout starts fully expanded.
+  useEffect(() => {
+    setCollapsed(new Set());
+  }, [levelsKey]);
+
+  // Picking a field that's already used in another level swaps the two (like dragging
+  // fields in a pivot table). Empty levels are closed up so there are never gaps.
+  const setLevel = (index, value) =>
+    setLevelSel((prev) => {
+      const next = [...prev];
+      const existing = value ? next.indexOf(value) : -1;
+      if (existing !== -1 && existing !== index) next[existing] = next[index];
+      next[index] = value;
+      const compact = next.filter(Boolean);
+      return [compact[0] || "", compact[1] || "", compact[2] || ""];
+    });
+
+  const applyPreset = (preset) => {
+    const [f, t] = preset.range();
+    setFrom(f);
+    setTo(t);
   };
+  const activePreset = PRESETS.find((p) => {
+    const [f, t] = p.range();
+    return f === from && t === to;
+  })?.id;
 
-  // Grand totals across all visible rows, shown as the last row (like an Excel total row)
-  const grandTotals = rows.reduce(
-    (acc, r) => ({
-      pcs: acc.pcs + (r.totalPcs || 0),
-      weight: acc.weight + (r.totalWeight || 0),
-      count: acc.count + (r.transactionCount || 0),
-    }),
-    { pcs: 0, weight: 0, count: 0 }
-  );
+  const toggle = (key) =>
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  const expandAll = () => setCollapsed(new Set());
+  const collapseAll = () => setCollapsed(new Set(allGroupKeys(pivot)));
 
   const exportCsv = () => {
-    const header = ["Period", "Department", "Transactions", "Total Pcs", "Total Weight (kg)"];
-    const lines = rows.map((r) =>
-      [r.period, r.department, r.transactionCount, r.totalPcs, r.totalWeight.toFixed(2)].join(",")
-    );
-    lines.push(["", "Grand Total", grandTotals.count, grandTotals.pcs, grandTotals.weight.toFixed(2)].join(","));
-    const csv = [header.join(","), ...lines].join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
+    const blob = new Blob([toCsv(pivot, levels, granularity, actions)], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `summary_${groupBy}_${action.toLowerCase()}.csv`;
+    a.download = `summary_${from || "all"}_${to || "all"}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
 
+  const grouped = view === "grouped" ? visibleRows(pivot, collapsed) : [];
+  const flat = view === "flat" ? leafRows(pivot) : [];
+  const isEmpty = pivot.children.length === 0;
+  const colSpanAll = (view === "flat" ? levels.length : 1) + cols.length;
+
+  const valueCells = (values, extra = "") =>
+    cols.map((c) => (
+      <td key={c.header} className={`px-4 py-2 text-right border-r border-gray-100 last:border-r-0 ${extra}`}>
+        {formatValue(cellValue(values, c), c.metric)}
+      </td>
+    ));
+
   return (
     <AdminLayout title="Summary">
+      {error && <div className="bg-red-50 text-red-700 text-sm rounded-lg p-3 mb-4">{error}</div>}
+
       {/* Filters */}
-      <div className="bg-white rounded-xl shadow p-4 mb-4">
-        <div className="grid grid-cols-2 md:grid-cols-6 gap-2">
-          <select
-            value={groupBy}
-            onChange={(e) => setGroupBy(e.target.value)}
-            className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
-          >
-            <option value="day">Daily</option>
-            <option value="month">Monthly</option>
-          </select>
-          <select
-            value={action}
-            onChange={(e) => setAction(e.target.value)}
-            className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
-          >
-            <option value="DROP_OFF">Drop-off</option>
-            <option value="PICKUP">Pickup</option>
-          </select>
-          <select
-            value={department}
-            onChange={(e) => setDepartment(e.target.value)}
-            className="border border-gray-300 rounded-lg px-3 py-2 text-sm col-span-2 md:col-span-1"
-          >
+      <div className="bg-white rounded-xl shadow p-4 mb-3">
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={selectClass} />
+          <span className="text-gray-400 text-sm">to</span>
+          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className={selectClass} />
+          {PRESETS.map((p) => (
+            <button
+              key={p.id}
+              onClick={() => applyPreset(p)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium border ${
+                activePreset === p.id
+                  ? "bg-blue-600 text-white border-blue-600"
+                  : "bg-white text-gray-600 border-gray-300"
+              }`}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <select value={department} onChange={(e) => setDepartment(e.target.value)} className={selectClass}>
             <option value="">All departments</option>
             {(departments || []).map((d) => (
               <option key={d} value={d}>{d}</option>
             ))}
           </select>
-          <input
-            type="date"
-            value={from}
-            onChange={(e) => setFrom(e.target.value)}
-            className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
-          />
-          <input
-            type="date"
-            value={to}
-            onChange={(e) => setTo(e.target.value)}
-            className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
-          />
-          <div className="flex gap-2">
-            <button
-              onClick={applyFilters}
-              className="flex-1 bg-blue-600 text-white rounded-lg px-3 py-2 text-sm font-medium"
-            >
-              Filter
-            </button>
-            <button
-              onClick={clearFilters}
-              className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
-            >
-              Clear
-            </button>
-          </div>
+          <select value={show} onChange={(e) => setShow(e.target.value)} className={selectClass}>
+            <option value="DROP_OFF">Drop-off</option>
+            <option value="PICKUP">Pickup</option>
+            <option value="BOTH">Drop-off &amp; Pickup</option>
+          </select>
         </div>
       </div>
 
-      {/* Export */}
-      <div className="flex justify-end mb-2">
-        <button
-          onClick={exportCsv}
-          disabled={rows.length === 0}
-          className="text-sm text-blue-600 font-medium disabled:text-gray-300"
-        >
-          Export Excel
-        </button>
+      {/* Pivot layout + view controls */}
+      <div className="bg-white rounded-xl shadow p-4 mb-4">
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          <span className="text-sm font-medium text-gray-600 mr-1">Rows:</span>
+          <select value={levelSel[0]} onChange={(e) => setLevel(0, e.target.value)} className={selectClass} aria-label="Group by (level 1)">
+            {LEVEL_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+          <span className="text-gray-300">›</span>
+          <select value={levelSel[1]} onChange={(e) => setLevel(1, e.target.value)} className={selectClass} aria-label="Then by (level 2)">
+            <option value="">— none —</option>
+            {LEVEL_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+          <span className="text-gray-300">›</span>
+          <select
+            value={levelSel[2]}
+            onChange={(e) => setLevel(2, e.target.value)}
+            disabled={!levelSel[1]}
+            className={`${selectClass} disabled:bg-gray-50 disabled:text-gray-300`}
+            aria-label="Then by (level 3)"
+          >
+            <option value="">— none —</option>
+            {LEVEL_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+          {levels.includes("period") && (
+            <select value={granularity} onChange={(e) => setGranularity(e.target.value)} className={selectClass} aria-label="Date grouping">
+              <option value="day">By day</option>
+              <option value="month">By month</option>
+            </select>
+          )}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="inline-flex rounded-lg border border-gray-300 overflow-hidden text-sm">
+            {[
+              ["grouped", "Grouped"],
+              ["flat", "Flat"],
+            ].map(([id, label]) => (
+              <button
+                key={id}
+                onClick={() => setView(id)}
+                className={`px-3 py-1.5 ${view === id ? "bg-blue-600 text-white" : "bg-white text-gray-600"}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {view === "grouped" && (
+            <>
+              <button
+                onClick={expandAll}
+                disabled={!hasGroups}
+                className="px-3 py-1.5 rounded-lg text-sm border border-gray-300 text-gray-600 disabled:opacity-40"
+              >
+                Expand all
+              </button>
+              <button
+                onClick={collapseAll}
+                disabled={!hasGroups}
+                className="px-3 py-1.5 rounded-lg text-sm border border-gray-300 text-gray-600 disabled:opacity-40"
+              >
+                Collapse all
+              </button>
+            </>
+          )}
+          <button
+            onClick={exportCsv}
+            disabled={isEmpty}
+            className="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm text-blue-600 font-medium disabled:text-gray-300"
+          >
+            <Download size={15} /> Export CSV
+          </button>
+        </div>
       </div>
 
-      {/* Excel-style table */}
+      {/* Pivot table */}
       <div className="bg-white rounded-xl shadow overflow-x-auto">
         <table className="w-full text-sm border-collapse">
           <thead>
-            <tr className="bg-gray-50 border-b-2 border-gray-200 text-gray-600">
-              <th className="px-4 py-3 text-left border-r border-gray-100">{groupBy === "day" ? "Date" : "Month"}</th>
-              <th className="px-4 py-3 text-left border-r border-gray-100">Department</th>
-              <th className="px-4 py-3 text-right border-r border-gray-100">Transactions</th>
-              <th className="px-4 py-3 text-right border-r border-gray-100">Total Pcs</th>
-              <th className="px-4 py-3 text-right">Total Weight (kg)</th>
+            <tr className="bg-gray-100 border-b-2 border-gray-200 text-gray-600">
+              {view === "grouped" ? (
+                <th className="px-4 py-3 text-left border-r border-gray-200">Row Labels</th>
+              ) : (
+                levels.map((f) => (
+                  <th key={f} className="px-4 py-3 text-left border-r border-gray-200">
+                    {fieldLabel(f, granularity)}
+                  </th>
+                ))
+              )}
+              {cols.map((c) => (
+                <th key={c.header} className="px-4 py-3 text-right border-r border-gray-200 last:border-r-0 whitespace-nowrap">
+                  {c.header}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan="5" className="px-4 py-6 text-center text-gray-400">Loading...</td></tr>
-            ) : rows.length === 0 ? (
-              <tr><td colSpan="5" className="px-4 py-6 text-center text-gray-400">No data for this range.</td></tr>
+              <tr><td colSpan={colSpanAll} className="px-4 py-6 text-center text-gray-400">Loading...</td></tr>
+            ) : isEmpty ? (
+              <tr><td colSpan={colSpanAll} className="px-4 py-6 text-center text-gray-400">No data for this selection.</td></tr>
             ) : (
               <>
-                {rows.map((r, i) => (
-                  <tr key={i} className="border-b border-gray-100 hover:bg-gray-50">
-                    <td className="px-4 py-2.5 border-r border-gray-100 whitespace-nowrap">{r.period}</td>
-                    <td className="px-4 py-2.5 border-r border-gray-100">{r.department}</td>
-                    <td className="px-4 py-2.5 border-r border-gray-100 text-right">{r.transactionCount}</td>
-                    <td className="px-4 py-2.5 border-r border-gray-100 text-right">{r.totalPcs}</td>
-                    <td className="px-4 py-2.5 text-right">{r.totalWeight.toFixed(2)}</td>
-                  </tr>
-                ))}
-                {/* Grand total row */}
-                <tr className="bg-blue-50 font-semibold border-t-2 border-blue-200">
-                  <td className="px-4 py-3 border-r border-blue-100" colSpan="2">Grand Total</td>
-                  <td className="px-4 py-3 border-r border-blue-100 text-right">{grandTotals.count}</td>
-                  <td className="px-4 py-3 border-r border-blue-100 text-right">{grandTotals.pcs}</td>
-                  <td className="px-4 py-3 text-right">{grandTotals.weight.toFixed(2)}</td>
+                {view === "grouped" &&
+                  grouped.map((row) => (
+                    <tr
+                      key={row.key}
+                      className={`border-b border-gray-100 ${
+                        row.isGroup
+                          ? row.depth === 0
+                            ? "bg-blue-50 font-semibold"
+                            : "bg-slate-50 font-medium"
+                          : "hover:bg-gray-50"
+                      }`}
+                    >
+                      <td
+                        className="py-2 pr-4 border-r border-gray-100 whitespace-nowrap"
+                        style={{ paddingLeft: 16 + row.depth * 28 }}
+                      >
+                        {row.isGroup ? (
+                          <button onClick={() => toggle(row.key)} className="inline-flex items-center gap-1.5 text-left">
+                            {row.isCollapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}
+                            {row.node.label}
+                          </button>
+                        ) : (
+                          row.node.label
+                        )}
+                      </td>
+                      {valueCells(row.node.values)}
+                    </tr>
+                  ))}
+
+                {view === "flat" &&
+                  flat.map((leaf, i) => (
+                    <tr key={i} className="border-b border-gray-100 hover:bg-gray-50">
+                      {leaf.labels.map((label, j) => (
+                        <td key={j} className="px-4 py-2 border-r border-gray-100 whitespace-nowrap">{label}</td>
+                      ))}
+                      {valueCells(leaf.values)}
+                    </tr>
+                  ))}
+
+                <tr className="bg-gray-100 font-semibold border-t-2 border-gray-300">
+                  <td className="px-4 py-3 border-r border-gray-200" colSpan={view === "flat" ? levels.length : 1}>
+                    Grand Total
+                  </td>
+                  {valueCells(pivot.values)}
                 </tr>
               </>
             )}

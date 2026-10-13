@@ -34,6 +34,8 @@ export default function StaffForm() {
     setDeptItems([]);
     setPendingItems([]);
     setNotices([]);
+    setRows([{ ...emptyRow }]);
+    setAction("DROP_OFF");
 
     // Step 1: find the employee. If this fails, nothing else runs.
     let data;
@@ -87,28 +89,73 @@ export default function StaffForm() {
     setLookingUp(false);
   };
 
-  const weightFor = (itemName) => deptItems.find((i) => i.itemName === itemName)?.weightPerPc || 0;
+  const isPickup = action === "PICKUP";
 
-  const updateRow = (index, field, value) => {
-    setRows((prev) => prev.map((r, i) => (i === index ? { ...r, [field]: value } : r)));
+  // Pickup rules: only items this department dropped off AND the counter has verified,
+  // and never more than what is still there.
+  const readyItems = pendingItems.filter((p) => p.availablePcs > 0);
+  const awaitingItems = pendingItems.filter((p) => p.awaitingPcs > 0);
+  const availableFor = (itemName) => readyItems.find((p) => p.itemName === itemName)?.availablePcs ?? 0;
+  const noPickupAvailable = isPickup && readyItems.length === 0;
+
+  // Dropdown options for one row. Drop-off: the department's whole item list.
+  // Pickup: only verified items still at the laundry, minus ones already picked in another row.
+  const optionsFor = (rowIndex) => {
+    if (!isPickup) {
+      return deptItems.map((it) => ({ key: it._id, value: it.itemName, label: it.itemName }));
+    }
+    const usedElsewhere = new Set(rows.filter((_, i) => i !== rowIndex).map((r) => r.itemName));
+    return readyItems
+      .filter((p) => !usedElsewhere.has(p.itemName))
+      .map((p) => ({ key: p.itemName, value: p.itemName, label: `${p.itemName} — ${p.availablePcs} ready` }));
   };
 
+  // Picking an item in pickup mode fills in the full quantity that is ready.
+  const selectItem = (index, itemName) =>
+    setRows((prev) =>
+      prev.map((r, i) =>
+        i !== index
+          ? r
+          : { ...r, itemName, pcs: isPickup ? (itemName ? String(availableFor(itemName)) : "") : r.pcs }
+      )
+    );
+
+  // Quantity can be lowered freely, but in pickup mode never raised above what is ready.
+  const changePcs = (index, value) =>
+    setRows((prev) =>
+      prev.map((r, i) => {
+        if (i !== index) return r;
+        if (isPickup && r.itemName && value !== "") {
+          const n = Math.floor(Number(value));
+          if (!Number.isFinite(n)) return r;
+          return { ...r, pcs: String(Math.min(Math.max(n, 0), availableFor(r.itemName))) };
+        }
+        return { ...r, pcs: value };
+      })
+    );
+
+  const changeAction = (a) => {
+    setAction(a);
+    setRows([{ ...emptyRow }]); // the item list differs between drop-off and pickup
+    setError("");
+  };
+
+  const canAddRow = !isPickup || rows.length < readyItems.length;
   const addRow = () => setRows((prev) => [...prev, { ...emptyRow }]);
   const removeRow = (index) => setRows((prev) => prev.filter((_, i) => i !== index));
 
-  const totals = rows.reduce(
-    (acc, r) => {
-      const pcs = Number(r.pcs) || 0;
-      const weight = pcs * weightFor(r.itemName);
-      return { pcs: acc.pcs + pcs, weight: acc.weight + weight };
-    },
-    { pcs: 0, weight: 0 }
-  );
+  const totalPcs = rows.reduce((sum, r) => sum + (Number(r.pcs) || 0), 0);
+
+  const validQty = (r) => {
+    const n = Number(r.pcs);
+    return Number.isInteger(n) && n > 0 && (!isPickup || n <= availableFor(r.itemName));
+  };
 
   const canSubmit =
     employee &&
+    !noPickupAvailable &&
     rows.length > 0 &&
-    rows.every((r) => r.itemName && Number(r.pcs) > 0);
+    rows.every((r) => r.itemName && validQty(r));
 
   const handleSubmit = async () => {
     setLoading(true);
@@ -172,15 +219,9 @@ export default function StaffForm() {
           <p className="text-gray-600 mb-4">
             {submitted.action === "DROP_OFF" ? "Drop-off" : "Pickup"} recorded for {submitted.staffName}
           </p>
-          <div className="bg-gray-50 rounded-xl p-4 text-left mb-5 grid grid-cols-2 gap-3">
-            <div>
-              <p className="text-sm text-gray-500">Total pieces</p>
-              <p className="text-lg font-medium">{submitted.totalPcs}</p>
-            </div>
-            <div>
-              <p className="text-sm text-gray-500">Total weight</p>
-              <p className="text-lg font-medium">{submitted.totalWeight.toFixed(2)} kg</p>
-            </div>
+          <div className="bg-gray-50 rounded-xl p-4 text-left mb-5">
+            <p className="text-sm text-gray-500">Total pieces</p>
+            <p className="text-lg font-medium">{submitted.totalPcs}</p>
           </div>
           <div className="flex flex-col sm:flex-row gap-2">
             {isAdminEntry ? (
@@ -265,19 +306,31 @@ export default function StaffForm() {
           </div>
         )}
 
-        {/* Pending pickup reference — how much this department still has at the laundry */}
-        {employee && !deptNotRegistered && pendingItems.length > 0 && (
+        {/* Ready for pickup — verified drop-offs of this department still at the laundry */}
+        {employee && !deptNotRegistered && readyItems.length > 0 && (
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4 text-sm">
-            <p className="font-medium text-amber-800 mb-1.5">Available for pickup ({employee.department})</p>
-            {pendingItems.map((p) => (
+            <p className="font-medium text-amber-800 mb-1.5">Ready for pickup ({employee.department})</p>
+            {readyItems.map((p) => (
               <div key={p.itemName} className="flex justify-between text-amber-700 py-0.5">
                 <span>{p.itemName}</span>
-                <span>{p.pendingPcs} pcs · {p.pendingWeight} kg</span>
+                <span>{p.availablePcs} pcs</span>
               </div>
             ))}
-            <p className="text-xs text-amber-600 mt-1.5">
-              Based on drop-offs not yet marked as picked up. For reference only.
-            </p>
+            <p className="text-xs text-amber-600 mt-1.5">Only verified drop-offs can be picked up.</p>
+          </div>
+        )}
+
+        {/* Dropped off but the counter hasn't verified it yet — can't be picked up until then */}
+        {employee && !deptNotRegistered && awaitingItems.length > 0 && (
+          <div className="bg-sky-50 border border-sky-200 rounded-xl p-3 mb-4 text-sm">
+            <p className="font-medium text-sky-800 mb-1.5">Waiting for counter verification</p>
+            {awaitingItems.map((p) => (
+              <div key={p.itemName} className="flex justify-between text-sky-700 py-0.5">
+                <span>{p.itemName}</span>
+                <span>{p.awaitingPcs} pcs</span>
+              </div>
+            ))}
+            <p className="text-xs text-sky-600 mt-1.5">These can be picked up once the counter verifies them.</p>
           </div>
         )}
 
@@ -309,7 +362,7 @@ export default function StaffForm() {
                 <button
                   key={a}
                   type="button"
-                  onClick={() => setAction(a)}
+                  onClick={() => changeAction(a)}
                   className={`flex-1 rounded-xl py-3 font-medium border ${
                     action === a
                       ? "bg-blue-600 text-white border-blue-600"
@@ -321,74 +374,85 @@ export default function StaffForm() {
               ))}
             </div>
 
-            {/* Item rows */}
-            <label className="block text-sm font-medium text-gray-700 mb-1">Items</label>
-            {rows.map((row, i) => {
-              const lineWeight = (Number(row.pcs) || 0) * weightFor(row.itemName);
-              return (
-                <div key={i} className="border border-gray-200 rounded-xl p-3 mb-2">
-                  <div className="flex gap-2 mb-2">
-                    <select
-                      value={row.itemName}
-                      onChange={(e) => updateRow(i, "itemName", e.target.value)}
-                      className="flex-1 min-w-0 border border-gray-300 rounded-lg px-2 py-2 text-sm md:text-base md:py-2.5"
-                    >
-                      <option value="">Select item</option>
-                      {deptItems.map((it) => (
-                        <option key={it._id} value={it.itemName}>
-                          {it.itemName}
-                        </option>
-                      ))}
-                    </select>
-                    <input
-                      type="number"
-                      min="1"
-                      inputMode="numeric"
-                      placeholder="Pcs"
-                      value={row.pcs}
-                      onChange={(e) => updateRow(i, "pcs", e.target.value)}
-                      className="w-16 shrink-0 border border-gray-300 rounded-lg px-2 py-2 text-sm"
-                    />
-                    {rows.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => removeRow(i)}
-                        className="shrink-0 text-red-500 px-1"
-                        aria-label="Remove item"
-                      >
-                        ✕
-                      </button>
-                    )}
-                  </div>
-                  {row.itemName && row.pcs && (
-                    <p className="text-xs text-gray-500">≈ {lineWeight.toFixed(2)} kg</p>
+            {noPickupAvailable ? (
+              <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 text-sm text-gray-600">
+                {awaitingItems.length > 0
+                  ? "Nothing is ready for pickup yet. Your department's drop-off is still waiting to be verified at the counter."
+                  : "Nothing to pick up. Your department has no verified drop-offs waiting."}
+              </div>
+            ) : (
+              <>
+                {/* Item rows */}
+                <label className="block text-sm font-medium text-gray-700 mb-1">Items</label>
+                {rows.map((row, i) => {
+                  const max = isPickup && row.itemName ? availableFor(row.itemName) : null;
+                  return (
+                    <div key={i} className="border border-gray-200 rounded-xl p-3 mb-2">
+                      <div className="flex gap-2 mb-2">
+                        <select
+                          value={row.itemName}
+                          onChange={(e) => selectItem(i, e.target.value)}
+                          className="flex-1 min-w-0 border border-gray-300 rounded-lg px-2 py-2 text-sm md:text-base md:py-2.5"
+                        >
+                          <option value="">Select item</option>
+                          {optionsFor(i).map((o) => (
+                            <option key={o.key} value={o.value}>
+                              {o.label}
+                            </option>
+                          ))}
+                        </select>
+                        <input
+                          type="number"
+                          min="1"
+                          max={max ?? undefined}
+                          step="1"
+                          inputMode="numeric"
+                          placeholder="Pcs"
+                          value={row.pcs}
+                          onChange={(e) => changePcs(i, e.target.value)}
+                          className="w-16 shrink-0 border border-gray-300 rounded-lg px-2 py-2 text-sm"
+                        />
+                        {rows.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => removeRow(i)}
+                            className="shrink-0 text-red-500 px-1"
+                            aria-label="Remove item"
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </div>
+                      {max !== null && (
+                        <p className="text-xs text-gray-500">Max {max} pcs ready — you can lower it</p>
+                      )}
+                    </div>
+                  );
+                })}
+
+                <div className="mb-4">
+                  {canAddRow && (
+                    <button type="button" onClick={addRow} className="text-blue-600 text-sm font-medium">
+                      + Add another item
+                    </button>
                   )}
                 </div>
-              );
-            })}
 
-            <button
-              type="button"
-              onClick={addRow}
-              className="text-blue-600 text-sm font-medium mb-4"
-            >
-              + Add another item
-            </button>
+                {/* Live totals */}
+                <div className="bg-gray-50 rounded-xl p-3 mb-4 text-sm">
+                  Total: <strong>{totalPcs} pcs</strong>
+                </div>
 
-            {/* Live totals */}
-            <div className="bg-gray-50 rounded-xl p-3 mb-4 flex justify-between text-sm">
-              <span>Total: <strong>{totals.pcs} pcs</strong></span>
-              <span><strong>{totals.weight.toFixed(2)} kg</strong></span>
-            </div>
-
-            <button
-              type="button"
-              disabled={!canSubmit || loading}
-              onClick={handleSubmit}
-              className="w-full bg-blue-600 disabled:bg-gray-300 text-white rounded-xl py-3 font-medium active:bg-blue-700"
-            >
-              {loading ? "Submitting..." : "Submit"}
-            </button>
+                <button
+                  type="button"
+                  disabled={!canSubmit || loading}
+                  onClick={handleSubmit}
+                  className="w-full bg-blue-600 disabled:bg-gray-300 text-white rounded-xl py-3 font-medium active:bg-blue-700"
+                >
+                  {loading ? "Submitting..." : "Submit"}
+                </button>
+              </>
+            )}
           </>
         )}
       </div>

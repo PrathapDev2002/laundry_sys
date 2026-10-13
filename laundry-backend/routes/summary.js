@@ -3,6 +3,7 @@ const router = express.Router();
 const Transaction = require("../models/Transaction");
 const auth = require("../middleware/authMiddle");
 const { parseFrom, parseTo } = require("../utils/dates");
+const { pivotPipeline, shapeRows } = require("../utils/pivot");
 
 // GET /api/summary?groupBy=day|month&department=&from=&to=&action=DROP_OFF
 // ADMIN ONLY. Default action=DROP_OFF since that's what feeds the "sent for washing" totals.
@@ -45,6 +46,15 @@ router.get("/", auth, async (req, res) => {
       transactionCount: s.transactionCount,
     }))
   );
+});
+
+// GET /api/summary/pivot?from=&to=&department=&period=day|month|none
+// ADMIN ONLY. Raw pivot rows (period x department x item x action -> pcs, weight);
+// the Summary page groups, expands and collapses them in the browser.
+router.get("/pivot", auth, async (req, res) => {
+  const { department, from, to, period } = req.query;
+  const rows = await Transaction.aggregate(pivotPipeline({ department, from, to, period }));
+  res.json(shapeRows(rows));
 });
 
 module.exports = router;

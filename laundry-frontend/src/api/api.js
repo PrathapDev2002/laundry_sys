@@ -56,6 +56,7 @@ export const getPendingItems = (department) =>
 
 // --- Summary ---
 export const getSummary = (params) => api.get("/summary", { params });
+export const getPivot = (params) => api.get("/summary/pivot", { params });
 
 // --- Employees admin ---
 export const listEmployees = (params) => api.get("/employees", { params });

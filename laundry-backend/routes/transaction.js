@@ -5,30 +5,7 @@ const Employee = require("../models/Employee");
 const Notification = require("../models/Notification");
 const auth = require("../middleware/authMiddle");
 const { parseFrom, parseTo } = require("../utils/dates");
-
-// Shared helper: { itemName: pendingPcs } for a department — dropped off minus picked up.
-// Used both by the /pending reference endpoint and to validate pickups on submit.
-async function getPendingMap(department) {
-  const dropoffAgg = await Transaction.aggregate([
-    { $match: { department, action: "DROP_OFF" } },
-    { $unwind: "$items" },
-    { $group: { _id: "$items.itemName", pcs: { $sum: "$items.pcs" } } },
-  ]);
-  const pickupAgg = await Transaction.aggregate([
-    { $match: { department, action: "PICKUP" } },
-    { $unwind: "$items" },
-    { $group: { _id: "$items.itemName", pcs: { $sum: "$items.pcs" } } },
-  ]);
-
-  const pickedMap = {};
-  pickupAgg.forEach((p) => { pickedMap[p._id] = p.pcs; });
-
-  const pendingMap = {};
-  dropoffAgg.forEach((d) => {
-    pendingMap[d._id] = d.pcs - (pickedMap[d._id] || 0);
-  });
-  return pendingMap;
-}
+const { getItemBalances, checkPickup } = require("../utils/balances");
 
 // POST /api/transactions  -> the QR form submits here
 // body: { staffId, action: "PICKUP"|"DROP_OFF", items: [{ itemName, pcs }] }
@@ -37,6 +14,13 @@ async function getPendingMap(department) {
 router.post("/", async (req, res) => {
   try {
     const { staffId, action, items } = req.body;
+
+    if (!["DROP_OFF", "PICKUP"].includes(action)) {
+      return res.status(400).json({ message: "Action must be drop-off or pickup" });
+    }
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ message: "Add at least one item" });
+    }
 
     const employee = await Employee.findOne({ staffId, active: true });
     if (!employee) return res.status(404).json({ message: "Employee not found" });
@@ -48,7 +32,12 @@ router.post("/", async (req, res) => {
     let totalPcs = 0;
     let totalWeight = 0;
     const resolvedItems = items.map(({ itemName, pcs }) => {
-      const deptItem = dept.items.find(i => i.itemName === itemName && i.active);
+      if (!Number.isInteger(pcs) || pcs < 1) {
+        throw new Error(`Quantity for "${itemName}" must be a whole number of at least 1`);
+      }
+      // Pickups may include items an admin has since removed from the dropdown, so stock
+      // that is still at the laundry can always be collected.
+      const deptItem = dept.items.find(i => i.itemName === itemName && (i.active || action === "PICKUP"));
       if (!deptItem) throw new Error(`Item "${itemName}" not valid for department ${employee.department}`);
       const lineWeight = pcs * deptItem.weightPerPc;
       totalPcs += pcs;
@@ -56,18 +45,12 @@ router.post("/", async (req, res) => {
       return { itemName, pcs, weightPerPc: deptItem.weightPerPc, totalWeight: lineWeight };
     });
 
-    // For pickups, don't allow taking more of an item than is actually still
-    // pending (dropped off minus already picked up) for this department.
+    // Pickups are only allowed for drop-offs the counter has verified, and never for more
+    // than is still there (verified minus already picked up) for this department.
     if (action === "PICKUP") {
-      const pendingMap = await getPendingMap(employee.department);
-      for (const { itemName, pcs } of resolvedItems) {
-        const available = pendingMap[itemName] || 0;
-        if (pcs > available) {
-          return res.status(400).json({
-            message: `Only ${available} pcs of "${itemName}" is available for pickup, cannot pick up ${pcs}.`,
-          });
-        }
-      }
+      const balances = await getItemBalances(employee.department);
+      const problem = checkPickup(balances, resolvedItems);
+      if (problem) return res.status(400).json({ message: problem });
     }
 
     const transaction = await Transaction.create({
@@ -107,64 +90,12 @@ router.post("/", async (req, res) => {
   }
 });
 
-// GET /api/transactions  -> admin transaction table
-// query: ?department=&action=&from=&to=&page=&limit=
-// GET /api/transactions/pending           -> pending items across ALL departments (admin overview)
-// GET /api/transactions/pending?department=X -> pending items for one department (staff reference)
+// GET /api/transactions/pending           -> items still at the laundry, ALL departments (admin overview)
+// GET /api/transactions/pending?department=X -> same for one department (staff form: what's ready to pick up)
+// PUBLIC — the staff form needs it. Each row has pendingPcs (still at the laundry), awaitingPcs
+// (not yet verified by the counter) and availablePcs/availableWeight (verified, ready to pick up).
 router.get("/pending", async (req, res) => {
-  const { department } = req.query;
-  const matchDropoff = { action: "DROP_OFF" };
-  const matchPickup = { action: "PICKUP" };
-  if (department) {
-    matchDropoff.department = department;
-    matchPickup.department = department;
-  }
-
-  const dropoffAgg = await Transaction.aggregate([
-    { $match: matchDropoff },
-    { $unwind: "$items" },
-    {
-      $group: {
-        _id: { department: "$department", itemName: "$items.itemName" },
-        pcs: { $sum: "$items.pcs" },
-        weight: { $sum: "$items.totalWeight" },
-      },
-    },
-  ]);
-  const pickupAgg = await Transaction.aggregate([
-    { $match: matchPickup },
-    { $unwind: "$items" },
-    {
-      $group: {
-        _id: { department: "$department", itemName: "$items.itemName" },
-        pcs: { $sum: "$items.pcs" },
-        weight: { $sum: "$items.totalWeight" },
-      },
-    },
-  ]);
-
-  const pickedMap = {};
-  pickupAgg.forEach((p) => {
-    pickedMap[`${p._id.department}::${p._id.itemName}`] = p;
-  });
-
-  const pending = dropoffAgg
-    .map((d) => {
-      const key = `${d._id.department}::${d._id.itemName}`;
-      const picked = pickedMap[key] || { pcs: 0, weight: 0 };
-      return {
-        department: d._id.department,
-        itemName: d._id.itemName,
-        droppedPcs: d.pcs,
-        pickedPcs: picked.pcs,
-        pendingPcs: d.pcs - picked.pcs,
-        pendingWeight: Number((d.weight - picked.weight).toFixed(2)),
-      };
-    })
-    .filter((p) => p.pendingPcs > 0) // only show items still owed back
-    .sort((a, b) => a.department.localeCompare(b.department) || a.itemName.localeCompare(b.itemName));
-
-  res.json(pending);
+  res.json(await getItemBalances(req.query.department));
 });
 
 // GET /api/transactions  -> ADMIN ONLY — full transaction table
@@ -250,8 +181,18 @@ router.patch("/:id/acknowledge", auth, async (req, res) => {
 
     await transaction.save();
 
+    // The "awaiting verification" notification has done its job — remove it so the bell
+    // doesn't keep pointing at something that's already handled. A failure here must not
+    // undo the verification, which is already saved.
+    try {
+      await Notification.deleteMany({ transactionId: transaction._id });
+    } catch (cleanupErr) {
+      console.error("Notification cleanup failed:", cleanupErr.message);
+    }
+
     const io = req.app.get("io");
     if (io) {
+      io.emit("notificationsChanged"); // every open bell reloads its list
       io.emit("transactionAcknowledged", {
         id: transaction._id,
         staffId: transaction.staffId,

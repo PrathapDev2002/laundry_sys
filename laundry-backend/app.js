@@ -47,6 +47,23 @@ async function ensureDefaultAdmin() {
   console.log(`Default admin created -> username: "${username}". Change the password after first login.`);
 }
 
+ 
+// Notifications for drop-offs that were verified BEFORE verification started clearing them
+// would otherwise sit in the bell forever. Remove them once at startup.
+async function clearStaleNotifications() {
+  const Notification = require("./models/Notification");
+  const Transaction = require("./models/Transaction");
+  const stale = await Notification.aggregate([
+    { $match: { action: "DROP_OFF" } },
+    { $lookup: { from: Transaction.collection.name, localField: "transactionId", foreignField: "_id", as: "tx" } },
+    { $match: { "tx.status": "ACKNOWLEDGED" } },
+    { $project: { _id: 1 } },
+  ]);
+  if (stale.length === 0) return;
+  await Notification.deleteMany({ _id: { $in: stale.map((n) => n._id) } });
+  console.log(`Cleared ${stale.length} notification(s) for drop-offs that were already verified.`);
+}
+
 mongoose
   .connect(process.env.MONGODB_URI)
   .then(async () => {
