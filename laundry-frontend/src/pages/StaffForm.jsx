@@ -6,7 +6,7 @@ const emptyRow = { itemName: "", pcs: "" };
 
 export default function StaffForm() {
   const location = useLocation();
-  const isAdminEntry = location.pathname.startsWith("/admin"); // opened as admin's backup entry page
+  const isAdminEntry = location.pathname.startsWith("/admin"); // opened as admin's backup entry page fdfdfd
   const [staffId, setStaffId] = useState("");
   const [employee, setEmployee] = useState(null);
   const [notFound, setNotFound] = useState(false);

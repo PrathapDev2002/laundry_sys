@@ -24,7 +24,7 @@ const formatDateTime = (iso) =>
     minute: "2-digit",
   });
 
-// Per-item comparison of what staff submitted vs what the counter verified.
+// Per-item comparison of what staff submitted vs what the counter verified. bhgjhg
 // originalItems only exists when the count was corrected; otherwise both sides match.
 const comparisonRows = (t) => {
   const original = t.originalItems?.length ? t.originalItems : t.items;

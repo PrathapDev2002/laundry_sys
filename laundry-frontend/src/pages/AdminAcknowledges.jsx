@@ -8,7 +8,7 @@ export default function AdminAcknowledge() {
   const [pending, setPending] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  // The drop-off being verified. Each line keeps what staff submitted (original*) next to what
+  // The drop-off being verified. Each line keeps what fjfjfj staff submitted (original*) next to what
   // the counter says it really is (itemName / pcs) — the counter can fix either one, because
   // staff sometimes pick the wrong item.
   const [active, setActive] = useState(null);

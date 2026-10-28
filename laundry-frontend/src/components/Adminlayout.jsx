@@ -70,7 +70,7 @@ export default function AdminLayout({ title, children }) {
         />
       )}
 
-      {/* Sidebar (drawer on mobile, fixed collapsible column on desktop) */}
+      {/* Sidebar (drawer on mobile, fixed collapsible column on desktobbp) */}
       <nav
         className={`
           bg-linear-to-b from-slate-900 to-slate-800 text-slate-200 flex flex-col
