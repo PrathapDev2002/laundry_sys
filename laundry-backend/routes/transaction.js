@@ -11,7 +11,7 @@ const { sumByName, buildVerification, changedLines } = require("../utils/verific
 // POST /api/transactions  -> the QR form submits here
 // body: { staffId, action: "PICKUP"|"DROP_OFF", items: [{ itemName, pcs }] }
 // Weight is NOT trusted from the client — always recomputed server-side against
-// the department's item list, so the frontend can't send a tampered weight.
+// the department's item list, so the frontend can't send a tampered weight.cvxcx
 router.post("/", async (req, res) => {
   try {
     const { staffId, action, items } = req.body;

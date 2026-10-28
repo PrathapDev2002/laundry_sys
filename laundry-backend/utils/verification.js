@@ -2,9 +2,9 @@
 // tested on their own and reused by the verify route, the delete guard and the staff notices.
 //
 // The counter may fix BOTH the quantity and the item of each line (staff sometimes pick the
-// wrong item), so lines are never matched up by position or assumed to keep their item.
+// wrong item), so lines are never matched up by position or assumed to keep their item.xcxccc
 
-// { itemName -> total pcs }, adding up lines that repeat an item
+// { itemName -> total pcs }, adding up lines that repeat an item dfdfd
 function sumByName(items) {
   const totals = new Map();
   for (const { itemName, pcs } of items) {
@@ -79,6 +79,7 @@ function changedLines(originalItems, verifiedItems) {
       verifiedPcs: after.get(itemName) || 0,
     }))
     .filter((line) => line.originalPcs !== line.verifiedPcs);
+    // sdsndsnd
 }
 
 module.exports = { sumByName, buildVerification, changedLines };
