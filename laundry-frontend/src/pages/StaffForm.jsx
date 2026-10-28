@@ -337,12 +337,16 @@ export default function StaffForm() {
         {/* One-time notice: a past drop-off's quantity was corrected at the counter */}
         {employee && notices.length > 0 && (
           <div className="bg-orange-50 border border-orange-200 rounded-xl p-3 mb-4 text-sm">
-            <p className="font-medium text-orange-800 mb-1.5">⚠ Quantity correction on a past drop-off</p>
+            <p className="font-medium text-orange-800 mb-1.5">⚠ A past drop-off was corrected at the counter</p>
             {notices.map((n, idx) => (
               <div key={idx} className="mb-2 last:mb-0">
                 {n.items.map((it) => (
                   <p key={it.itemName} className="text-orange-700">
-                    {it.itemName}: you submitted {it.originalPcs}, counter verified {it.verifiedPcs}
+                    {it.originalPcs === 0
+                      ? `${it.itemName}: counter recorded ${it.verifiedPcs} (not in your submission)`
+                      : it.verifiedPcs === 0
+                        ? `${it.itemName}: you submitted ${it.originalPcs}, counter found none`
+                        : `${it.itemName}: you submitted ${it.originalPcs}, counter verified ${it.verifiedPcs}`}
                   </p>
                 ))}
                 <p className="text-xs text-orange-600 mt-0.5">

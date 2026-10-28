@@ -6,6 +6,7 @@ const Notification = require("../models/Notification");
 const auth = require("../middleware/authMiddle");
 const { parseFrom, parseTo } = require("../utils/dates");
 const { getItemBalances, checkPickup } = require("../utils/balances");
+const { sumByName, buildVerification, changedLines } = require("../utils/verification");
 
 // POST /api/transactions  -> the QR form submits here
 // body: { staffId, action: "PICKUP"|"DROP_OFF", items: [{ itemName, pcs }] }
@@ -137,44 +138,35 @@ router.patch("/:id/acknowledge", auth, async (req, res) => {
       return res.status(400).json({ message: "This transaction has already been acknowledged" });
     }
 
-    const { items: verifiedInput } = req.body;
-    if (!Array.isArray(verifiedInput) || verifiedInput.length === 0) {
-      return res.status(400).json({ message: "Verified item quantities are required" });
-    }
-
     const Department = require("../models/Department");
     const dept = await Department.findOne({ name: transaction.department });
-    if (!dept) return res.status(400).json({ message: "Department has no item list configured" });
 
-    let newTotalPcs = 0;
-    let newTotalWeight = 0;
-    const verifiedItems = verifiedInput.map(({ itemName, pcs }) => {
-      const deptItem = dept.items.find((i) => i.itemName === itemName);
-      const weightPerPc = deptItem ? deptItem.weightPerPc : 0;
-      const lineWeight = pcs * weightPerPc;
-      newTotalPcs += pcs;
-      newTotalWeight += lineWeight;
-      return { itemName, pcs, weightPerPc, totalWeight: lineWeight };
+    // Weight per piece: the department's current item list first; if the item has since been
+    // removed from it (or the department is gone), fall back to the weight saved on this
+    // transaction. An item known to neither is rejected rather than silently weighed as 0 kg.
+    const weightOf = (name) =>
+      dept?.items.find((i) => i.itemName === name)?.weightPerPc ??
+      transaction.items.find((i) => i.itemName === name)?.weightPerPc;
+
+    // The counter may correct the item as well as the quantity of every line.
+    const result = buildVerification({
+      originalItems: transaction.items,
+      inputItems: req.body.items,
+      weightOf,
     });
+    if (result.error) return res.status(400).json({ message: result.error });
 
-    // Did the verified count differ from what was originally submitted?
-    const discrepancy =
-      newTotalPcs !== transaction.totalPcs ||
-      verifiedItems.some((v) => {
-        const orig = transaction.items.find((i) => i.itemName === v.itemName);
-        return !orig || orig.pcs !== v.pcs;
-      });
-
-    if (discrepancy) {
-      transaction.originalItems = transaction.items;
+    if (result.discrepancy) {
+      // Keep a plain copy of exactly what was submitted, before it is overwritten below.
+      transaction.originalItems = transaction.items.map((i) => i.toObject());
       transaction.originalTotalPcs = transaction.totalPcs;
       transaction.originalTotalWeight = transaction.totalWeight;
       transaction.hasDiscrepancy = true;
     }
 
-    transaction.items = verifiedItems;
-    transaction.totalPcs = newTotalPcs;
-    transaction.totalWeight = newTotalWeight;
+    transaction.items = result.items;
+    transaction.totalPcs = result.totalPcs;
+    transaction.totalWeight = result.totalWeight;
     transaction.status = "ACKNOWLEDGED";
     transaction.acknowledgedBy = req.admin.username; // from the logged-in session, not user input
     transaction.acknowledgedAt = new Date();
@@ -236,13 +228,45 @@ router.get("/my-notices", async (req, res) => {
       verifiedTotalPcs: n.totalPcs,
       acknowledgedBy: n.acknowledgedBy,
       acknowledgedAt: n.acknowledgedAt,
-      items: n.items.map((item) => ({
-        itemName: item.itemName,
-        verifiedPcs: item.pcs,
-        originalPcs: n.originalItems?.find((o) => o.itemName === item.itemName)?.pcs ?? item.pcs,
-      })),
+      items: changedLines(n.originalItems || [], n.items),
     }))
   );
+});
+
+// DELETE /api/transactions/:id -> ADMIN ONLY — permanently remove a transaction
+// (e.g. a wrong or test entry). Pending-pickup balances and summaries follow automatically,
+// since they're always calculated from the transactions that exist.
+router.delete("/:id", auth, async (req, res) => {
+  const transaction = await Transaction.findById(req.params.id);
+  if (!transaction) return res.status(404).json({ message: "Transaction not found" });
+
+  // Don't leave more picked up than was ever dropped off: a verified drop-off can only be
+  // deleted while all of its stock is still there. (An unverified one can't have been picked up.)
+  if (transaction.action === "DROP_OFF" && transaction.status !== "PENDING") {
+    const balances = await getItemBalances(transaction.department);
+    const byItem = Object.fromEntries(balances.map((b) => [b.itemName, b]));
+    for (const [itemName, pcs] of sumByName(transaction.items)) {
+      const available = byItem[itemName]?.availablePcs ?? 0;
+      if (available < pcs) {
+        return res.status(409).json({
+          message:
+            `Can't delete this drop-off: some of its "${itemName}" has already been picked up. ` +
+            `Delete the related pickup first.`,
+        });
+      }
+    }
+  }
+
+  await Transaction.deleteOne({ _id: transaction._id });
+  await Notification.deleteMany({ transactionId: transaction._id });
+  console.log(
+    `Transaction deleted by ${req.admin.username}: ${transaction.action} by ${transaction.staffName} ` +
+      `(${transaction.staffId}), ${transaction.department}, ${transaction.totalPcs} pcs, ${transaction.createdAt.toISOString()}`
+  );
+
+  const io = req.app.get("io");
+  if (io) io.emit("notificationsChanged");
+  res.json({ message: "Transaction deleted" });
 });
 
 module.exports = router;

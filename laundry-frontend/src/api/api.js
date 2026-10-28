@@ -45,6 +45,7 @@ export const submitTransaction = (payload) => api.post("/transactions", payload)
 export const getTransactions = (params) => api.get("/transactions", { params });
 export const getAcknowledgements = (params) =>
   api.get("/transactions", { params: { action: "DROP_OFF", status: "PENDING", ...params } });
+export const deleteTransaction = (id) => api.delete(`/transactions/${id}`);
 export const acknowledgeDropoff = (id, items) =>
   api.patch(`/transactions/${id}/acknowledge`, { items });
 export const listNotifications = () => api.get("/notifications");
